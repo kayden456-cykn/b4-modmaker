@@ -138,12 +138,15 @@ async function handlePrompt(interaction: ChatInputCommandInteraction): Promise<v
 
   try {
     const response = await openrouter.chat.send({
-      model: MODEL,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        ...history,
-      ],
-      max_tokens: MAX_OUTPUT_TOKENS,
+      chatRequest: {
+        model: MODEL,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          ...history,
+        ],
+        max_tokens: MAX_OUTPUT_TOKENS,
+        stream: false,
+      },
     });
 
     const content = response.choices[0]?.message?.content;

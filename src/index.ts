@@ -144,7 +144,7 @@ async function handlePrompt(interaction: ChatInputCommandInteraction): Promise<v
           { role: "system", content: SYSTEM_PROMPT },
           ...history,
         ],
-        max_tokens: MAX_OUTPUT_TOKENS,
+        maxCompletionTokens: MAX_OUTPUT_TOKENS,
         stream: false,
       },
     });

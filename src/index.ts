@@ -50,6 +50,13 @@ const commandData = [
           .setDescription("Describe what you want B4 MODMAKER to do")
           .setRequired(true)
           .setMaxLength(4000),
+      )
+      .addStringOption((option) =>
+        option
+          .setName("language")
+          .setDescription("Programming language or framework (optional)")
+          .setRequired(false)
+          .setMaxLength(100),
       ),
   ),
   new SlashCommandBuilder().setName("reset").setDescription("Clear your B4 MODMAKER conversation history"),
@@ -58,19 +65,21 @@ const commandData = [
 
 const helpMessage = [
   "**B4 MODMAKER commands**",
-  "`/create prompt:` Generate code and complete files",
-  "`/build prompt:` Get build setup and instructions",
-  "`/debug prompt:` Find and fix errors",
-  "`/explain prompt:` Explain code",
-  "`/optimize prompt:` Improve code",
-  "`/convert prompt:` Convert code or formats",
+  "`/create prompt: language:` Generate code and complete files",
+  "`/build prompt: language:` Get build setup and instructions",
+  "`/debug prompt: language:` Find and fix errors",
+  "`/explain prompt: language:` Explain code",
+  "`/optimize prompt: language:` Improve code",
+  "`/convert prompt: language:` Convert code or formats",
   "`/reset` Clear your conversation history",
   "`/help` Show this message",
   "",
+  "**Language examples:** JavaScript, TypeScript, Python, C#, C++, Java, Rust, Lua, Kotlin, Swift.",
+  "The language option is optional. If omitted, B4 MODMAKER will infer the language or preserve the language of existing code.",
   "You can paste code directly into the prompt. For very long files, send the relevant section or error message.",
 ].join("\n");
 
-function makePrompt(command: string, input: string): string {
+function makePrompt(command: string, input: string, language?: string | null): string {
   const instructions: Record<string, string> = {
     create: "Create the following. Output complete files with exact filenames and locations, dependencies, and build commands. State assumptions.",
     build: "Give the complete build setup and exact build commands for this project. Include required dependencies, config files, and likely failure points.",
@@ -79,7 +88,10 @@ function makePrompt(command: string, input: string): string {
     optimize: "Optimize this for performance and quality. Output the complete optimized file(s) and briefly list what changed and why.",
     convert: "Convert this as requested. Output the complete converted file(s) with filenames. State assumptions and anything that doesn't map 1:1.",
   };
-  return `${instructions[command] ?? "Help with this request."}\n\n${input}`;
+  const languageInstruction = language?.trim()
+    ? `\n\nUser-specified programming language or framework: ${language.trim()}. Use this preference for generated or modified code. When analyzing existing code, preserve its current language unless the user explicitly asks to convert it.`
+    : "";
+  return `${instructions[command] ?? "Help with this request."}${languageInstruction}\n\n${input}`;
 }
 
 function splitMessage(value: string, limit = 1900): string[] {
@@ -111,6 +123,7 @@ async function registerCommands(): Promise<void> {
 async function handlePrompt(interaction: ChatInputCommandInteraction): Promise<void> {
   const command = interaction.commandName;
   const userInput = interaction.options.getString("prompt", true);
+  const language = interaction.options.getString("language");
   const historyKey = interaction.user.id;
   const history = histories.get(historyKey) ?? [];
 
@@ -118,7 +131,7 @@ async function handlePrompt(interaction: ChatInputCommandInteraction): Promise<v
 
   const userMessage: Anthropic.MessageParam = {
     role: "user",
-    content: makePrompt(command, userInput),
+    content: makePrompt(command, userInput, language),
   };
   history.push(userMessage);
 
@@ -136,7 +149,6 @@ async function handlePrompt(interaction: ChatInputCommandInteraction): Promise<v
       .trim();
 
     history.push({ role: "assistant", content: answer || "I couldn't generate a text response." });
-    // Keep the latest 20 messages (10 user/assistant exchanges).
     histories.set(historyKey, history.slice(-20));
 
     const chunks = splitMessage(answer);

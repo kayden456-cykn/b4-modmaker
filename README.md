@@ -1,12 +1,12 @@
 # B4 MODMAKER
 
-B4 MODMAKER is a Discord slash-command coding assistant powered by Anthropic and hosted on Railway.
+B4 MODMAKER is a Discord slash-command coding assistant powered by OpenAI's Codex-tuned model through the OpenAI Responses API and hosted on Railway.
 
 ## Features
 
 - `/create` — generate code and complete files
 - `/build` — get build setup and instructions
-- `/debug` — find and fix errors
+- `/debug` — find and fix code errors
 - `/explain` — understand code
 - `/optimize` — improve code quality and performance
 - `/convert` — convert code and formats
@@ -31,25 +31,25 @@ Replies are private (ephemeral). Conversation history is kept separately per Dis
 
 Do not share your bot token with anyone or commit it to GitHub.
 
-## 2. Get an Anthropic API key
+## 2. Create an OpenAI API key
 
-1. Go to the [Anthropic Console](https://console.anthropic.com/).
-2. Sign in or create an Anthropic account.
-3. Open **Settings → API keys**, or visit the [API keys page](https://console.anthropic.com/settings/keys).
-4. Select **Create Key**, name it (for example, `B4 MODMAKER`), and copy it.
-5. Set up any billing or API access Anthropic requires for your account.
+1. Open the [OpenAI API keys page](https://platform.openai.com/api-keys).
+2. Sign in to your OpenAI Platform account.
+3. Create a new secret key for this bot and copy it.
+4. Make sure the API project has access and billing/credits configured for API usage.
 
-Keep the API key private. If it is exposed, revoke it in the Anthropic Console and create a replacement. Never put real keys in `.env.example` or GitHub.
+Keep the API key private. If it is exposed, revoke it in the OpenAI Platform and create a replacement. Never put real keys in `.env.example` or GitHub.
+
+**Billing note:** OpenAI API usage is billed separately from a ChatGPT subscription or Codex plan.
 
 ## 3. Deploy to Railway
 
-1. Open [Railway](https://railway.com/) and create a project.
-2. Choose **Deploy from GitHub Repo** and select `kayden456-cykn/b4-modmaker`.
-3. In the service's **Variables** tab, add the variables below.
-4. In **Settings → Deploy**, use:
+1. Open Railway and select the **B4 MODMAKER** service.
+2. In the service's **Variables** tab, add the variables below.
+3. In **Settings → Deploy**, use:
    - Build Command: `npm run build`
    - Start Command: `npm start`
-5. Deploy. Check the deployment logs for **B4 MODMAKER is online**.
+4. Deploy. Check the deployment logs for **B4 MODMAKER is online** and **Using OpenAI model: gpt-5.3-codex**.
 
 ### Railway variables
 
@@ -60,9 +60,11 @@ Add these in Railway's Variables tab (do not include quotes):
 | `DISCORD_TOKEN` | Your Discord bot token |
 | `DISCORD_CLIENT_ID` | Application Client ID from OAuth2 |
 | `DISCORD_GUILD_ID` | Your Discord server ID (recommended for instant guild command updates) |
-| `ANTHROPIC_API_KEY` | Your Anthropic API key |
-| `B4_MODEL` | `claude-sonnet-5-5` |
+| `OPENAI_API_KEY` | Your OpenAI API key |
+| `B4_MODEL` | `gpt-5.3-codex` |
 | `B4_MAX_TOKENS` | `8192` |
+
+The bot calls the OpenAI Responses API and keeps the last messages in each user's conversation so follow-up prompts have context. The default model is the Codex-tuned `gpt-5.3-codex`. You can change `B4_MODEL` to another model available to your API project if needed.
 
 For quick command registration, set `DISCORD_GUILD_ID`. If you leave it blank, commands are registered globally and may take longer to appear.
 

@@ -1,129 +1,196 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { createInterface } from "node:readline/promises";
-import { readFile } from "node:fs/promises";
-import { stdin as input, stdout as output } from "node:process";
+import {
+  Client,
+  GatewayIntentBits,
+  REST,
+  Routes,
+  SlashCommandBuilder,
+  type ChatInputCommandInteraction,
+} from "discord.js";
 import { SYSTEM_PROMPT } from "./systemPrompt.js";
-import { COMMANDS, helpText } from "./commands.js";
+
+const {
+  DISCORD_TOKEN,
+  DISCORD_CLIENT_ID,
+  DISCORD_GUILD_ID,
+  ANTHROPIC_API_KEY,
+} = process.env;
 
 const MODEL = process.env.B4_MODEL ?? "claude-sonnet-5-5";
 const MAX_TOKENS = Number(process.env.B4_MAX_TOKENS ?? 8192);
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error("Missing ANTHROPIC_API_KEY. Copy .env.example to .env and set it.");
+if (!DISCORD_TOKEN || !DISCORD_CLIENT_ID || !ANTHROPIC_API_KEY) {
+  console.error(
+    "Missing environment variables. Set DISCORD_TOKEN, DISCORD_CLIENT_ID, and ANTHROPIC_API_KEY in Railway Variables.",
+  );
   process.exit(1);
 }
 
-const client = new Anthropic();
-let history: Anthropic.MessageParam[] = [];
+const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const histories = new Map<string, Anthropic.MessageParam[]>();
 
-/** Replace @file:path tokens with the file's text content in a code fence. */
-async function expandFiles(text: string): Promise<string> {
-  let result = text;
-  for (const match of text.matchAll(/@file:(\S+)/g)) {
-    const path = match[1];
-    let replacement: string;
-    try {
-      const content = await readFile(path, "utf8");
-      replacement = `\n\`\`\`\n// ${path}\n${content}\n\`\`\`\n`;
-    } catch {
-      replacement = `[could not read ${path}]`;
-    }
-    result = result.replace(match[0], () => replacement);
-  }
-  return result;
+const promptCommands = [
+  ["create", "Generate complete code and project files"],
+  ["build", "Get build setup and instructions"],
+  ["debug", "Find and fix code errors"],
+  ["explain", "Understand code and how it works"],
+  ["optimize", "Improve code quality and performance"],
+  ["convert", "Convert code to another language or format"],
+] as const;
+
+const commandData = [
+  ...promptCommands.map(([name, description]) =>
+    new SlashCommandBuilder()
+      .setName(name)
+      .setDescription(description)
+      .addStringOption((option) =>
+        option
+          .setName("prompt")
+          .setDescription("Describe what you want B4 MODMAKER to do")
+          .setRequired(true)
+          .setMaxLength(4000),
+      ),
+  ),
+  new SlashCommandBuilder().setName("reset").setDescription("Clear your B4 MODMAKER conversation history"),
+  new SlashCommandBuilder().setName("help").setDescription("Show B4 MODMAKER commands"),
+];
+
+const helpMessage = [
+  "**B4 MODMAKER commands**",
+  "`/create prompt:` Generate code and complete files",
+  "`/build prompt:` Get build setup and instructions",
+  "`/debug prompt:` Find and fix errors",
+  "`/explain prompt:` Explain code",
+  "`/optimize prompt:` Improve code",
+  "`/convert prompt:` Convert code or formats",
+  "`/reset` Clear your conversation history",
+  "`/help` Show this message",
+  "",
+  "You can paste code directly into the prompt. For very long files, send the relevant section or error message.",
+].join("\n");
+
+function makePrompt(command: string, input: string): string {
+  const instructions: Record<string, string> = {
+    create: "Create the following. Output complete files with exact filenames and locations, dependencies, and build commands. State assumptions.",
+    build: "Give the complete build setup and exact build commands for this project. Include required dependencies, config files, and likely failure points.",
+    debug: "Debug this. Identify the root cause, then output the complete corrected file(s) with exact filenames.",
+    explain: "Explain this code clearly and precisely: purpose, flow, key APIs, and pitfalls. Do not invent details that aren't in the code.",
+    optimize: "Optimize this for performance and quality. Output the complete optimized file(s) and briefly list what changed and why.",
+    convert: "Convert this as requested. Output the complete converted file(s) with filenames. State assumptions and anything that doesn't map 1:1.",
+  };
+  return `${instructions[command] ?? "Help with this request."}\n\n${input}`;
 }
 
-/** Map "/cmd args" to a prompt; return null if not a command. */
-function toPrompt(line: string): string | null {
-  if (!line.startsWith("/")) return line;
-  const [rawName, ...rest] = line.slice(1).split(/\s+/);
-  const arg = line.slice(1 + rawName.length).trim();
-  const cmd = COMMANDS.find((c) => c.name === rawName.toLowerCase());
-  if (!cmd) {
-    console.log(`Unknown command "/${rawName}". Type /help.`);
-    return null;
+function splitMessage(value: string, limit = 1900): string[] {
+  const chunks: string[] = [];
+  let remaining = value.trim() || "The AI returned an empty response.";
+  while (remaining.length > limit) {
+    let cut = remaining.lastIndexOf("\n", limit);
+    if (cut < limit * 0.5) cut = limit;
+    chunks.push(remaining.slice(0, cut));
+    remaining = remaining.slice(cut).trimStart();
   }
-  if (!arg) {
-    console.log(`Usage: ${cmd.usage}`);
-    return null;
-  }
-  void rest;
-  return cmd.build(arg);
+  if (remaining) chunks.push(remaining);
+  return chunks;
 }
 
-async function ask(userText: string): Promise<void> {
-  history.push({ role: "user", content: userText });
+async function registerCommands(): Promise<void> {
+  const rest = new REST({ version: "10" }).setToken(DISCORD_TOKEN!);
+  const body = commandData.map((command) => command.toJSON());
+
+  if (DISCORD_GUILD_ID) {
+    await rest.put(Routes.applicationGuildCommands(DISCORD_CLIENT_ID!, DISCORD_GUILD_ID), { body });
+    console.log(`Registered ${body.length} guild slash commands in ${DISCORD_GUILD_ID}.`);
+  } else {
+    await rest.put(Routes.applicationCommands(DISCORD_CLIENT_ID!), { body });
+    console.log(`Registered ${body.length} global slash commands.`);
+  }
+}
+
+async function handlePrompt(interaction: ChatInputCommandInteraction): Promise<void> {
+  const command = interaction.commandName;
+  const userInput = interaction.options.getString("prompt", true);
+  const historyKey = interaction.user.id;
+  const history = histories.get(historyKey) ?? [];
+
+  await interaction.deferReply({ ephemeral: true });
+
+  const userMessage: Anthropic.MessageParam = {
+    role: "user",
+    content: makePrompt(command, userInput),
+  };
+  history.push(userMessage);
+
   try {
-    const stream = client.messages.stream({
+    const response = await anthropic.messages.create({
       model: MODEL,
       max_tokens: MAX_TOKENS,
       system: SYSTEM_PROMPT,
       messages: history,
     });
-    stream.on("text", (t) => output.write(t));
-    const final = await stream.finalMessage();
-    output.write("\n\n");
-    const text = final.content
-      .flatMap((b) => (b.type === "text" ? [b.text] : []))
-      .join("");
-    history.push({ role: "assistant", content: text });
-  } catch (err) {
-    history.pop(); // keep history valid so the user can retry
-    console.error(`\n[error] ${err instanceof Error ? err.message : String(err)}\n`);
+
+    const answer = response.content
+      .flatMap((block) => (block.type === "text" ? [block.text] : []))
+      .join("\n")
+      .trim();
+
+    history.push({ role: "assistant", content: answer || "I couldn't generate a text response." });
+    // Keep the latest 20 messages (10 user/assistant exchanges).
+    histories.set(historyKey, history.slice(-20));
+
+    const chunks = splitMessage(answer);
+    await interaction.editReply(chunks[0]);
+    for (const chunk of chunks.slice(1)) {
+      await interaction.followUp({ content: chunk, ephemeral: true });
+    }
+  } catch (error) {
+    history.pop();
+    histories.set(historyKey, history);
+    console.error("Anthropic request failed:", error);
+    const message =
+      error instanceof Error ? error.message.slice(0, 1200) : "Unknown API error";
+    await interaction.editReply(
+      `I couldn't complete that request. Check the Railway logs and your Anthropic API key/model settings.\n\n${message}`,
+    );
   }
 }
+
+client.once("ready", (readyClient) => {
+  console.log(`B4 MODMAKER is online as ${readyClient.user.tag}.`);
+  console.log(`Using model: ${MODEL}`);
+});
+
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === "help") {
+    await interaction.reply({ content: helpMessage, ephemeral: true });
+    return;
+  }
+
+  if (interaction.commandName === "reset") {
+    histories.delete(interaction.user.id);
+    await interaction.reply({
+      content: "Your B4 MODMAKER conversation history has been cleared.",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  await handlePrompt(interaction);
+});
 
 async function main(): Promise<void> {
-  const rl = createInterface({ input, output });
-  console.log(`B4 MODMAKER online (model: ${MODEL}). Type /help for commands.\n`);
-
-  while (true) {
-    let line = (await rl.question("b4> ")).trim();
-    if (!line) continue;
-
-    // Multi-line block mode
-    if (line === '"""') {
-      const lines: string[] = [];
-      while (true) {
-        const next = await rl.question("... ");
-        if (next.trim() === '"""') break;
-        lines.push(next);
-      }
-      line = lines.join("\n").trim();
-      if (!line) continue;
-    } else if (line.startsWith("/") && line.endsWith('"""') === false && line.includes('"""')) {
-      // e.g. `/debug """` -> read a block after the command
-      const head = line.slice(0, line.indexOf('"""')).trim();
-      const lines: string[] = [];
-      while (true) {
-        const next = await rl.question("... ");
-        if (next.trim() === '"""') break;
-        lines.push(next);
-      }
-      line = `${head} ${lines.join("\n")}`.trim();
-    }
-
-    const lower = line.toLowerCase();
-    if (lower === "/exit" || lower === "/quit") break;
-    if (lower === "/help") {
-      console.log(helpText() + "\n");
-      continue;
-    }
-    if (lower === "/reset") {
-      history = [];
-      console.log("History cleared.\n");
-      continue;
-    }
-
-    const prompt = toPrompt(line);
-    if (prompt === null) continue;
-    await ask(await expandFiles(prompt));
-  }
-
-  rl.close();
+  await registerCommands();
+  await client.login(DISCORD_TOKEN);
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error("B4 MODMAKER failed to start:", error);
   process.exit(1);
+});
+
+process.on("unhandledRejection", (error) => {
+  console.error("Unhandled promise rejection:", error);
 });

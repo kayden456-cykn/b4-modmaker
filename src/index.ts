@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import {
   Client,
   GatewayIntentBits,
@@ -13,22 +13,23 @@ const {
   DISCORD_TOKEN,
   DISCORD_CLIENT_ID,
   DISCORD_GUILD_ID,
-  ANTHROPIC_API_KEY,
+  OPENAI_API_KEY,
 } = process.env;
 
-const MODEL = process.env.B4_MODEL ?? "claude-sonnet-5-5";
-const MAX_TOKENS = Number(process.env.B4_MAX_TOKENS ?? 8192);
+const MODEL = process.env.B4_MODEL ?? "gpt-5.3-codex";
+const MAX_OUTPUT_TOKENS = Number(process.env.B4_MAX_TOKENS ?? 8192);
 
-if (!DISCORD_TOKEN || !DISCORD_CLIENT_ID || !ANTHROPIC_API_KEY) {
+if (!DISCORD_TOKEN || !DISCORD_CLIENT_ID || !OPENAI_API_KEY) {
   console.error(
-    "Missing environment variables. Set DISCORD_TOKEN, DISCORD_CLIENT_ID, and ANTHROPIC_API_KEY in Railway Variables.",
+    "Missing environment variables. Set DISCORD_TOKEN, DISCORD_CLIENT_ID, and OPENAI_API_KEY in Railway Variables.",
   );
   process.exit(1);
 }
 
-const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-const histories = new Map<string, Anthropic.MessageParam[]>();
+type ChatMessage = { role: "user" | "assistant"; content: string };
+const histories = new Map<string, ChatMessage[]>();
 
 const promptCommands = [
   ["create", "Generate complete code and project files"],
@@ -129,25 +130,22 @@ async function handlePrompt(interaction: ChatInputCommandInteraction): Promise<v
 
   await interaction.deferReply({ ephemeral: true });
 
-  const userMessage: Anthropic.MessageParam = {
+  const userMessage: ChatMessage = {
     role: "user",
     content: makePrompt(command, userInput, language),
   };
   history.push(userMessage);
 
   try {
-    const response = await anthropic.messages.create({
+    const response = await openai.responses.create({
       model: MODEL,
-      max_tokens: MAX_TOKENS,
-      system: SYSTEM_PROMPT,
-      messages: history,
+      instructions: SYSTEM_PROMPT,
+      input: history,
+      max_output_tokens: MAX_OUTPUT_TOKENS,
+      reasoning: { effort: "medium" },
     });
 
-    const answer = response.content
-      .flatMap((block) => (block.type === "text" ? [block.text] : []))
-      .join("\n")
-      .trim();
-
+    const answer = response.output_text.trim();
     history.push({ role: "assistant", content: answer || "I couldn't generate a text response." });
     histories.set(historyKey, history.slice(-20));
 
@@ -159,18 +157,18 @@ async function handlePrompt(interaction: ChatInputCommandInteraction): Promise<v
   } catch (error) {
     history.pop();
     histories.set(historyKey, history);
-    console.error("Anthropic request failed:", error);
+    console.error("OpenAI request failed:", error);
     const message =
       error instanceof Error ? error.message.slice(0, 1200) : "Unknown API error";
     await interaction.editReply(
-      `I couldn't complete that request. Check the Railway logs and your Anthropic API key/model settings.\n\n${message}`,
+      `I couldn't complete that request. Check the Railway logs and your OpenAI API key/model settings.\n\n${message}`,
     );
   }
 }
 
 client.once("ready", (readyClient) => {
   console.log(`B4 MODMAKER is online as ${readyClient.user.tag}.`);
-  console.log(`Using model: ${MODEL}`);
+  console.log(`Using OpenAI model: ${MODEL}`);
 });
 
 client.on("interactionCreate", async (interaction) => {

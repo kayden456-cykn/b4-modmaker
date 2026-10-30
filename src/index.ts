@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import { OpenRouter } from "@openrouter/sdk";
 import {
   Client,
   GatewayIntentBits,
@@ -13,20 +13,20 @@ const {
   DISCORD_TOKEN,
   DISCORD_CLIENT_ID,
   DISCORD_GUILD_ID,
-  OPENAI_API_KEY,
+  OPENROUTER_API_KEY,
 } = process.env;
 
-const MODEL = process.env.B4_MODEL ?? "gpt-5.3-codex";
+const MODEL = process.env.B4_MODEL ?? "openrouter/free";
 const MAX_OUTPUT_TOKENS = Number(process.env.B4_MAX_TOKENS ?? 8192);
 
-if (!DISCORD_TOKEN || !DISCORD_CLIENT_ID || !OPENAI_API_KEY) {
+if (!DISCORD_TOKEN || !DISCORD_CLIENT_ID || !OPENROUTER_API_KEY) {
   console.error(
-    "Missing environment variables. Set DISCORD_TOKEN, DISCORD_CLIENT_ID, and OPENAI_API_KEY in Railway Variables.",
+    "Missing environment variables. Set DISCORD_TOKEN, DISCORD_CLIENT_ID, and OPENROUTER_API_KEY in Railway Variables.",
   );
   process.exit(1);
 }
 
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+const openrouter = new OpenRouter({ apiKey: OPENROUTER_API_KEY });
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 type ChatMessage = { role: "user" | "assistant"; content: string };
 const histories = new Map<string, ChatMessage[]>();
@@ -137,15 +137,17 @@ async function handlePrompt(interaction: ChatInputCommandInteraction): Promise<v
   history.push(userMessage);
 
   try {
-    const response = await openai.responses.create({
+    const response = await openrouter.chat.send({
       model: MODEL,
-      instructions: SYSTEM_PROMPT,
-      input: history,
-      max_output_tokens: MAX_OUTPUT_TOKENS,
-      reasoning: { effort: "medium" },
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        ...history,
+      ],
+      max_tokens: MAX_OUTPUT_TOKENS,
     });
 
-    const answer = response.output_text.trim();
+    const content = response.choices[0]?.message?.content;
+    const answer = typeof content === "string" ? content.trim() : "";
     history.push({ role: "assistant", content: answer || "I couldn't generate a text response." });
     histories.set(historyKey, history.slice(-20));
 
@@ -157,18 +159,18 @@ async function handlePrompt(interaction: ChatInputCommandInteraction): Promise<v
   } catch (error) {
     history.pop();
     histories.set(historyKey, history);
-    console.error("OpenAI request failed:", error);
+    console.error("OpenRouter request failed:", error);
     const message =
       error instanceof Error ? error.message.slice(0, 1200) : "Unknown API error";
     await interaction.editReply(
-      `I couldn't complete that request. Check the Railway logs and your OpenAI API key/model settings.\n\n${message}`,
+      `I couldn't complete that request. Check the Railway logs and your OpenRouter API key/model settings.\n\n${message}`,
     );
   }
 }
 
 client.once("ready", (readyClient) => {
   console.log(`B4 MODMAKER is online as ${readyClient.user.tag}.`);
-  console.log(`Using OpenAI model: ${MODEL}`);
+  console.log(`Using OpenRouter model: ${MODEL}`);
 });
 
 client.on("interactionCreate", async (interaction) => {

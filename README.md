@@ -1,6 +1,6 @@
 # B4 MODMAKER
 
-B4 MODMAKER is a Discord slash-command coding assistant powered by OpenAI's Codex-tuned model through the OpenAI Responses API and hosted on Railway.
+B4 MODMAKER is a Discord slash-command coding assistant powered by OpenRouter and hosted on Railway.
 
 ## Features
 
@@ -31,16 +31,13 @@ Replies are private (ephemeral). Conversation history is kept separately per Dis
 
 Do not share your bot token with anyone or commit it to GitHub.
 
-## 2. Create an OpenAI API key
+## 2. Create an OpenRouter API key
 
-1. Open the [OpenAI API keys page](https://platform.openai.com/api-keys).
-2. Sign in to your OpenAI Platform account.
-3. Create a new secret key for this bot and copy it.
-4. Make sure the API project has access and billing/credits configured for API usage.
+1. Open [OpenRouter API Keys](https://openrouter.ai/keys).
+2. Sign in and create a new API key.
+3. Copy the key. Keep it private and never commit it to GitHub.
 
-Keep the API key private. If it is exposed, revoke it in the OpenAI Platform and create a replacement. Never put real keys in `.env.example` or GitHub.
-
-**Billing note:** OpenAI API usage is billed separately from a ChatGPT subscription or Codex plan.
+The default model is `openrouter/free`, which automatically selects an available free model. Free model access is rate-limited and availability can vary. See [OpenRouter free models](https://openrouter.ai/collections/free-models).
 
 ## 3. Deploy to Railway
 
@@ -49,7 +46,7 @@ Keep the API key private. If it is exposed, revoke it in the OpenAI Platform and
 3. In **Settings → Deploy**, use:
    - Build Command: `npm run build`
    - Start Command: `npm start`
-4. Deploy. Check the deployment logs for **B4 MODMAKER is online** and **Using OpenAI model: gpt-5.3-codex**.
+4. Deploy. Check the deployment logs for **B4 MODMAKER is online** and **Using OpenRouter model: openrouter/free**.
 
 ### Railway variables
 
@@ -60,11 +57,9 @@ Add these in Railway's Variables tab (do not include quotes):
 | `DISCORD_TOKEN` | Your Discord bot token |
 | `DISCORD_CLIENT_ID` | Application Client ID from OAuth2 |
 | `DISCORD_GUILD_ID` | Your Discord server ID (recommended for instant guild command updates) |
-| `OPENAI_API_KEY` | Your OpenAI API key |
-| `B4_MODEL` | `gpt-5.3-codex` |
+| `OPENROUTER_API_KEY` | Your OpenRouter API key |
+| `B4_MODEL` | `openrouter/free` |
 | `B4_MAX_TOKENS` | `8192` |
-
-The bot calls the OpenAI Responses API and keeps the last messages in each user's conversation so follow-up prompts have context. The default model is the Codex-tuned `gpt-5.3-codex`. You can change `B4_MODEL` to another model available to your API project if needed.
 
 For quick command registration, set `DISCORD_GUILD_ID`. If you leave it blank, commands are registered globally and may take longer to appear.
 

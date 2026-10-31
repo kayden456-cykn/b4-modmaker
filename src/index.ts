@@ -1,5 +1,6 @@
 import { OpenRouter } from "@openrouter/sdk";
 import {
+  AttachmentBuilder,
   Client,
   GatewayIntentBits,
   REST,
@@ -154,11 +155,15 @@ async function handlePrompt(interaction: ChatInputCommandInteraction): Promise<v
     history.push({ role: "assistant", content: answer || "I couldn't generate a text response." });
     histories.set(historyKey, history.slice(-20));
 
-    const chunks = splitMessage(answer);
-    await interaction.editReply(chunks[0]);
-    for (const chunk of chunks.slice(1)) {
-      await interaction.followUp({ content: chunk, ephemeral: true });
-    }
+    const output = answer || "The AI returned an empty response.";
+    const attachment = new AttachmentBuilder(
+      Buffer.from(output, "utf8"),
+      { name: "b4-modmaker-response.md" },
+    );
+    await interaction.editReply({
+      content: "Your response is attached as a Markdown file.",
+      files: [attachment],
+    });
   } catch (error) {
     history.pop();
     histories.set(historyKey, history);

@@ -96,6 +96,30 @@ function makePrompt(command: string, input: string, language?: string | null): s
   return `${instructions[command] ?? "Help with this request."}${languageInstruction}\n\n${input}`;
 }
 
+function getFileExtension(language?: string | null, answer = ""): string {
+  const requested = language?.trim().toLowerCase();
+  const fenced = answer.match(/```([a-zA-Z0-9+#.-]+)/)?.[1]?.toLowerCase();
+  const value = requested || fenced || "";
+  const extensions: Record<string, string> = {
+    javascript: "js", js: "js", node: "js",
+    typescript: "ts", ts: "ts",
+    python: "py", py: "py",
+    csharp: "cs", "c#": "cs", cs: "cs",
+    cpp: "cpp", "c++": "cpp", c: "c",
+    java: "java", rust: "rs", rs: "rs",
+    lua: "lua", kotlin: "kt", kt: "kt",
+    swift: "swift", go: "go", golang: "go",
+    php: "php", ruby: "rb", rb: "rb",
+    html: "html", css: "css", scss: "scss",
+    json: "json", yaml: "yml", yml: "yml",
+    xml: "xml", sql: "sql", bash: "sh", shell: "sh",
+    powershell: "ps1", ps1: "ps1",
+    markdown: "md", md: "md",
+    text: "txt", plaintext: "txt", txt: "txt",
+  };
+  return extensions[value] ?? "txt";
+}
+
 function splitMessage(value: string, limit = 1900): string[] {
   const chunks: string[] = [];
   let remaining = value.trim() || "The AI returned an empty response.";
@@ -156,9 +180,10 @@ async function handlePrompt(interaction: ChatInputCommandInteraction): Promise<v
     histories.set(historyKey, history.slice(-20));
 
     const output = answer || "The AI returned an empty response.";
+    const extension = getFileExtension(language, output);
     const attachment = new AttachmentBuilder(
       Buffer.from(output, "utf8"),
-      { name: "b4-modmaker-response.md" },
+      { name: `b4-modmaker-response.${extension}` },
     );
     await interaction.editReply({
       content: "Your response is attached as a Markdown file.",
